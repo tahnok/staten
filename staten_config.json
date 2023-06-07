@@ -1,0 +1,6 @@
+{
+    "mqtt_url" : "tcp://192.168.2.8:1883?client_id=staten",
+    "mqtt_topic" : "esp8266-vindriktning-particle-sensor/VINDRIKTNING-A5C625/state",
+    "influx_url" : "http://192.168.2.8:8086",
+    "influx_db" : "test"
+}
