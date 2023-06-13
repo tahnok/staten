@@ -5,6 +5,7 @@ use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
 use serde::Deserialize;
 use std::env;
 use std::fs::File;
+use std::sync::Arc;
 use std::time::Duration;
 
 // example {\"pm25\":106,\"wifi\":{\"ssid\":\"Ravenclaw Tower\",\"ip\":\"192.168.2.103\",\"rssi\":-59}}"
@@ -27,7 +28,7 @@ struct StatenConfig {
     influx_db: String,
 }
 
-async fn handle_publish(config: StatenConfig, event: rumqttc::Publish) -> () {
+async fn handle_publish(config: Arc<StatenConfig>, event: rumqttc::Publish) -> () {
     let influx_client = influxdb::Client::new(&config.influx_url, &config.influx_db);
     let Ok::<AQIPacket, serde_json::Error>(packet) = serde_json::from_slice(&event.payload) else {
         println!("error parsing packet");
@@ -56,23 +57,22 @@ async fn main() -> Result<()> {
         _ => panic!("Expected one optional argument of config path"),
     };
     let config_file = File::open(config_path)?;
-    let config: StatenConfig = serde_json::from_reader(config_file)?;
+    let config: Arc<StatenConfig> = Arc::new(serde_json::from_reader(config_file)?);
 
-    let mut mqttoptions = MqttOptions::parse_url(config.mqtt_url.clone())?;
+    let mut mqttoptions = MqttOptions::parse_url(&config.mqtt_url)?;
     mqttoptions.set_keep_alive(Duration::from_secs(5));
 
     let (mqtt_client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
     mqtt_client
-        .subscribe(config.mqtt_topic.clone(), QoS::AtMostOnce)
+        .subscribe(&config.mqtt_topic, QoS::AtMostOnce)
         .await?;
 
     loop {
         let event = eventloop.poll().await;
         match event {
             Ok(Event::Incoming(Packet::Publish(event))) => {
-                let config_clone: StatenConfig = config.clone();
-                tokio::spawn(async { handle_publish(config_clone, event).await });
-                ()
+                let config_clone = config.clone();
+                tokio::spawn(async move { handle_publish(config_clone, event).await });
             }
             Ok(_) => (),
             Err(e) => {
